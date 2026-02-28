@@ -4,28 +4,28 @@ on:
   schedule:
     # Runs at 12 AM UTC every day (adjust timezone as needed)
     # Format: minute hour day month weekday
-    - cron: "0 0 * * *"
-
+    - cron: '0 0 * * *'
+  
   # Allows manual triggering from the Actions tab
   workflow_dispatch:
 
 jobs:
   generate-report:
     runs-on: ubuntu-latest
-
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
+      
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
-
+          python-version: '3.11'
+      
       - name: Install dependencies
         run: |
           pip install requests pytz
-
+      
       - name: Generate and send report
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -49,7 +49,7 @@ jobs:
           # Calculate time range (last 24 hours)
           end_time = datetime.utcnow()
           start_time = end_time - timedelta(days=1)
-
+          
           print(f"Fetching commits from {start_time.isoformat()} to {end_time.isoformat()}")
 
           # GitHub API headers
@@ -60,34 +60,49 @@ jobs:
 
           # Fetch user's repositories and specific org repositories
           repos = []
-
+          
           # Fetch personal repos
           personal_repos_url = f'https://api.github.com/user/repos?affiliation=owner,collaborator&per_page=100'
           personal_response = requests.get(personal_repos_url, headers=github_headers)
-          repos.extend(personal_response.json())
-
+          
+          if personal_response.status_code == 200:
+              personal_data = personal_response.json()
+              if isinstance(personal_data, list):
+                  repos.extend(personal_data)
+                  print(f"✓ Fetched {len(personal_data)} personal repos")
+              else:
+                  print(f"⚠ Unexpected response format for personal repos: {personal_data}")
+          else:
+              print(f"⚠ Could not fetch personal repos: {personal_response.status_code}")
+              print(f"Response: {personal_response.text}")
+          
           # Fetch repos from specific organizations
           org_names = ['kailasa-ngpt']  # Add more orgs here if needed
-
+          
           for org in org_names:
               org_repos_url = f'https://api.github.com/orgs/{org}/repos?per_page=100'
               org_response = requests.get(org_repos_url, headers=github_headers)
               
               if org_response.status_code == 200:
                   org_repos = org_response.json()
-                  repos.extend(org_repos)
-                  print(f"✓ Fetched {len(org_repos)} repos from {org}")
+                  if isinstance(org_repos, list):
+                      repos.extend(org_repos)
+                      print(f"✓ Fetched {len(org_repos)} repos from {org}")
+                  else:
+                      print(f"⚠ Unexpected response format from {org}: {org_repos}")
               else:
                   print(f"⚠ Could not fetch repos from {org}: {org_response.status_code}")
-
+                  print(f"Response: {org_response.text}")
+          
           # Remove duplicates (in case a repo appears in both lists)
           seen = set()
           unique_repos = []
           for repo in repos:
-              if repo['full_name'] not in seen:
-                  seen.add(repo['full_name'])
-                  unique_repos.append(repo)
-
+              if isinstance(repo, dict) and 'full_name' in repo:
+                  if repo['full_name'] not in seen:
+                      seen.add(repo['full_name'])
+                      unique_repos.append(repo)
+          
           repos = unique_repos
           print(f"Total repositories to scan: {len(repos)}")
 
@@ -96,6 +111,9 @@ jobs:
           total_commits = 0
 
           for repo in repos:
+              if not isinstance(repo, dict) or 'full_name' not in repo:
+                  continue
+                  
               repo_name = repo['full_name']
               
               # Fetch commits for this repo in the last 24 hours
@@ -108,20 +126,36 @@ jobs:
               
               try:
                   commits_response = requests.get(commits_url, headers=github_headers, params=params)
+                  
+                  if commits_response.status_code != 200:
+                      print(f"⚠ Could not fetch commits for {repo_name}: {commits_response.status_code}")
+                      continue
+                  
                   commits = commits_response.json()
                   
-                  if isinstance(commits, list) and len(commits) > 0:
+                  if not isinstance(commits, list):
+                      print(f"⚠ Unexpected response format for {repo_name}: {type(commits)}")
+                      continue
+                  
+                  if len(commits) > 0:
                       for commit in commits:
+                          if not isinstance(commit, dict):
+                              continue
+                          
+                          # Safely extract commit data
+                          commit_info = commit.get('commit', {})
+                          author_info = commit_info.get('author', {})
+                          
                           commit_data = {
-                              'message': commit['commit']['message'].split('\n')[0],  # First line only
-                              'sha': commit['sha'][:7],  # Short SHA
-                              'url': commit['html_url'],
-                              'timestamp': commit['commit']['author']['date']
+                              'message': commit_info.get('message', 'No message').split('\n')[0],  # First line only
+                              'sha': commit.get('sha', 'unknown')[:7],  # Short SHA
+                              'url': commit.get('html_url', ''),
+                              'timestamp': author_info.get('date', '')
                           }
                           commits_by_repo[repo_name].append(commit_data)
                           total_commits += 1
               except Exception as e:
-                  print(f"Error fetching commits for {repo_name}: {e}")
+                  print(f"❌ Error fetching commits for {repo_name}: {e}")
                   continue
 
           # Build the report
@@ -160,7 +194,7 @@ jobs:
           }
 
           response = requests.post(clickup_url, headers=clickup_headers, json=task_data)
-
+          
           if response.status_code in [200, 201]:
               print(f"✅ Successfully created task in ClickUp!")
               print(f"Task URL: {response.json().get('url', 'N/A')}")
