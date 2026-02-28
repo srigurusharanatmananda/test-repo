@@ -256,17 +256,22 @@ jobs:
 
           # Build the report
           if total_commits == 0:
-              report_content = f"# Daily Work Report - {report_date.strftime('%B %d, %Y')}\n\n"
+              report_content = f"DAILY WORK REPORT\n"
+              report_content += f"{report_date.strftime('%B %d, %Y')}\n"
+              report_content += "="*60 + "\n\n"
               report_content += "No code changes were made on this day.\n"
           else:
-              report_content = f"# Daily Work Report - {report_date.strftime('%B %d, %Y')}\n\n"
+              report_content = f"DAILY WORK REPORT\n"
+              report_content += f"{report_date.strftime('%B %d, %Y')}\n"
+              report_content += "="*60 + "\n\n"
               
               # Add executive summary
-              report_content += "## 📊 Summary\n\n"
-              report_content += f"**Total updates:** {total_commits} code changes across {len(commits_by_repo)} projects\n\n"
+              report_content += "SUMMARY\n"
+              report_content += "-"*60 + "\n"
+              report_content += f"Total updates: {total_commits} code changes across {len(commits_by_repo)} projects\n\n"
               
               # Generate project summaries
-              report_content += "**Projects worked on:**\n"
+              report_content += "Projects worked on:\n\n"
               for repo_name in sorted(commits_by_repo.keys()):
                   project_name = repo_name.split('/')[-1].replace('-', ' ').replace('_', ' ').title()
                   commit_count = len(commits_by_repo[repo_name])
@@ -277,31 +282,39 @@ jobs:
                   # Simple categorization
                   if any('fix' in m or 'bug' in m for m in messages):
                       work_type = "bug fixes and improvements"
-                  elif any('add' in m or 'new' in m or 'feature' in m for m in messages):
+                  elif any('add' in m or 'new' in m or 'feature' in m or 'feat' in m for m in messages):
                       work_type = "new features"
                   elif any('update' in m or 'change' in m or 'modify' in m for m in messages):
                       work_type = "updates and modifications"
                   else:
                       work_type = "development work"
                   
-                  report_content += f"- **{project_name}**: {commit_count} {work_type}\n"
+                  report_content += f"  • {project_name}: {commit_count} {work_type}\n"
               
-              report_content += "\n---\n\n"
+              report_content += "\n" + "="*60 + "\n\n"
               
               # Add detailed technical section
-              report_content += "## 📝 Detailed Changes\n\n"
+              report_content += "DETAILED CHANGES\n"
+              report_content += "-"*60 + "\n\n"
               
               for repo_name in sorted(commits_by_repo.keys()):
                   commits = commits_by_repo[repo_name]
                   project_name = repo_name.split('/')[-1].replace('-', ' ').replace('_', ' ').title()
-                  report_content += f"### {project_name} ({len(commits)} changes)\n\n"
+                  report_content += f"{project_name} ({len(commits)} changes)\n"
+                  report_content += "-"*40 + "\n\n"
                   
-                  for commit in commits:
+                  for i, commit in enumerate(commits, 1):
                       # Make commit message more readable
                       message = commit['message']
-                      author_display = f" — by {commit['author']}" if commit.get('author') else ""
-                      report_content += f"- {message}{author_display}\n"
-                      report_content += f"  [View details]({commit['url']})\n"
+                      # Remove common prefixes for readability
+                      message = message.replace('feat: ', '').replace('fix: ', '').replace('update: ', '').replace('add: ', '')
+                      message = message[0].upper() + message[1:] if message else message  # Capitalize first letter
+                      
+                      author_display = commit.get('author', 'Unknown')
+                      
+                      report_content += f"{i}. {message}\n"
+                      report_content += f"   Author: {author_display}\n"
+                      report_content += f"   Link: {commit['url']}\n\n"
                   
                   report_content += "\n"
 
