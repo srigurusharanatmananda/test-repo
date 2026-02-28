@@ -61,6 +61,8 @@ jobs:
           start_time = end_time - timedelta(days=1)
           
           print(f"Fetching commits from {start_time.isoformat()} to {end_time.isoformat()}")
+          print(f"Current UTC time: {end_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+          print(f"Looking for commits after: {start_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
           # GitHub API headers
           github_headers = {
@@ -135,8 +137,13 @@ jobs:
           for repo in repos:
               if not isinstance(repo, dict) or 'full_name' not in repo:
                   continue
-                  
+              
               repo_name = repo['full_name']
+              
+              # ONLY include repos from kailasa-ngpt organization
+              if not repo_name.startswith('kailasa-ngpt/'):
+                  print(f"  ⏭️  Skipping {repo_name} (not in kailasa-ngpt org)")
+                  continue
               
               # Fetch commits for this repo in the last 24 hours
               commits_url = f"https://api.github.com/repos/{repo_name}/commits"
@@ -179,7 +186,8 @@ jobs:
                           author_email = author_info.get('email', '')
                           
                           # DEBUG: Print what we found
-                          print(f"    🔍 Commit {commit.get('sha', '')[:7]}: login='{author_login}', name='{author_name}', email='{author_email}'")
+                          commit_time = author_info.get('date', '')
+                          print(f"    🔍 Commit {commit.get('sha', '')[:7]} at {commit_time}: login='{author_login}', name='{author_name}'")
                           
                           # Filter by your usernames - check both login and commit author name
                           author_match = False
@@ -190,7 +198,7 @@ jobs:
                               author_match = True
                               print(f"      ✅ MATCHED on name: {author_name}")
                           else:
-                              print(f"      ❌ NO MATCH - Checking against: {MY_GITHUB_USERNAMES}")
+                              print(f"      ❌ NO MATCH")
                           
                           if not author_match:
                               continue
@@ -215,20 +223,52 @@ jobs:
 
           # Build the report
           if total_commits == 0:
-              report_content = f"# Daily Commit Report - {end_time.strftime('%Y-%m-%d')}\n\n"
-              report_content += "No commits found in the last 24 hours.\n"
+              report_content = f"# Daily Work Report - {end_time.strftime('%B %d, %Y')}\n\n"
+              report_content += "No code changes were made in the last 24 hours.\n"
           else:
-              report_content = f"# Daily Commit Report - {end_time.strftime('%Y-%m-%d')}\n\n"
-              report_content += f"**Total commits: {total_commits}**\n\n"
+              report_content = f"# Daily Work Report - {end_time.strftime('%B %d, %Y')}\n\n"
+              
+              # Add executive summary
+              report_content += "## 📊 Summary\n\n"
+              report_content += f"**Total updates:** {total_commits} code changes across {len(commits_by_repo)} projects\n\n"
+              
+              # Generate project summaries
+              report_content += "**Projects worked on:**\n"
+              for repo_name in sorted(commits_by_repo.keys()):
+                  project_name = repo_name.split('/')[-1].replace('-', ' ').replace('_', ' ').title()
+                  commit_count = len(commits_by_repo[repo_name])
+                  
+                  # Extract key themes from commit messages
+                  messages = [c['message'].lower() for c in commits_by_repo[repo_name]]
+                  
+                  # Simple categorization
+                  if any('fix' in m or 'bug' in m for m in messages):
+                      work_type = "bug fixes and improvements"
+                  elif any('add' in m or 'new' in m or 'feature' in m for m in messages):
+                      work_type = "new features"
+                  elif any('update' in m or 'change' in m or 'modify' in m for m in messages):
+                      work_type = "updates and modifications"
+                  else:
+                      work_type = "development work"
+                  
+                  report_content += f"- **{project_name}**: {commit_count} {work_type}\n"
+              
+              report_content += "\n---\n\n"
+              
+              # Add detailed technical section
+              report_content += "## 📝 Detailed Changes\n\n"
               
               for repo_name in sorted(commits_by_repo.keys()):
                   commits = commits_by_repo[repo_name]
-                  report_content += f"## 📦 {repo_name} ({len(commits)} commits)\n\n"
+                  project_name = repo_name.split('/')[-1].replace('-', ' ').replace('_', ' ').title()
+                  report_content += f"### {project_name} ({len(commits)} changes)\n\n"
                   
                   for commit in commits:
-                      author_display = f" by {commit['author']}" if commit.get('author') else ""
-                      report_content += f"- `{commit['sha']}` {commit['message']}{author_display}\n"
-                      report_content += f"  [View commit]({commit['url']})\n"
+                      # Make commit message more readable
+                      message = commit['message']
+                      author_display = f" — by {commit['author']}" if commit.get('author') else ""
+                      report_content += f"- {message}{author_display}\n"
+                      report_content += f"  [View details]({commit['url']})\n"
                   
                   report_content += "\n"
 
@@ -243,10 +283,10 @@ jobs:
           }
 
           task_data = {
-              'name': f'Daily Commit Report - {end_time.strftime("%Y-%m-%d")}',
+              'name': f'Daily Work Report - {end_time.strftime("%B %d, %Y")}',
               'description': report_content,
               'status': 'to do',
-              'tags': ['daily-report', 'github-commits']
+              'tags': ['daily-report', 'development-work']
           }
 
           response = requests.post(clickup_url, headers=clickup_headers, json=task_data)
