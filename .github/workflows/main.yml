@@ -147,7 +147,10 @@ jobs:
                       print(f"⚠ Unexpected response format for {repo_name}: {type(commits)}")
                       continue
                   
+                  print(f"  📊 Scanning {repo_name}: found {len(commits)} total commits in time range")
+                  
                   if len(commits) > 0:
+                      matched_count = 0
                       for commit in commits:
                           if not isinstance(commit, dict):
                               continue
@@ -161,13 +164,21 @@ jobs:
                           github_author = commit.get('author', {})
                           author_login = github_author.get('login', '') if github_author else ''
                           author_name = author_info.get('name', '')
+                          author_email = author_info.get('email', '')
+                          
+                          # DEBUG: Print what we found
+                          print(f"    🔍 Commit {commit.get('sha', '')[:7]}: login='{author_login}', name='{author_name}', email='{author_email}'")
                           
                           # Filter by your usernames - check both login and commit author name
                           author_match = False
                           if author_login and author_login.lower() in MY_GITHUB_USERNAMES_LOWER:
                               author_match = True
+                              print(f"      ✅ MATCHED on login: {author_login}")
                           elif author_name and author_name.lower() in MY_GITHUB_USERNAMES_LOWER:
                               author_match = True
+                              print(f"      ✅ MATCHED on name: {author_name}")
+                          else:
+                              print(f"      ❌ NO MATCH - Checking against: {MY_GITHUB_USERNAMES}")
                           
                           if not author_match:
                               continue
@@ -181,11 +192,13 @@ jobs:
                           }
                           commits_by_repo[repo_name].append(commit_data)
                           total_commits += 1
+                          matched_count += 1
                       
-                      if len(commits) > 0:
-                          print(f"  → Found {len([c for c in commits if isinstance(c, dict)])} commits in {repo_name}")
+                      print(f"  ✓ {matched_count} commits matched your usernames in {repo_name}")
               except Exception as e:
                   print(f"❌ Error fetching commits for {repo_name}: {e}")
+                  import traceback
+                  traceback.print_exc()
                   continue
 
           # Build the report
