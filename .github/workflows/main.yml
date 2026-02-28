@@ -2,9 +2,9 @@ name: Daily Commit Report to ClickUp
 
 on:
   schedule:
-    # Runs at 12 AM UTC every day (adjust timezone as needed)
+    # Runs at 11:59 PM UTC every day to capture the full day's commits
     # Format: minute hour day month weekday
-    - cron: '0 0 * * *'
+    - cron: '59 23 * * *'
   
   # Allows manual triggering from the Actions tab
   workflow_dispatch:
@@ -56,13 +56,16 @@ jobs:
           # Convert to lowercase for case-insensitive matching
           MY_GITHUB_USERNAMES_LOWER = [u.lower() for u in MY_GITHUB_USERNAMES]
 
-          # Calculate time range (last 24 hours)
-          end_time = datetime.utcnow()
-          start_time = end_time - timedelta(days=1)
+          # Calculate time range for YESTERDAY (full day)
+          # This ensures we capture a complete day's work
+          end_time = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)  # Start of today
+          start_time = end_time - timedelta(days=1)  # Start of yesterday
           
+          report_date = start_time  # The day we're reporting on
+          
+          print(f"Generating report for: {report_date.strftime('%Y-%m-%d')}")
           print(f"Fetching commits from {start_time.isoformat()} to {end_time.isoformat()}")
-          print(f"Current UTC time: {end_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
-          print(f"Looking for commits after: {start_time.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+          print(f"Current UTC time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
           # GitHub API headers
           github_headers = {
@@ -146,27 +149,57 @@ jobs:
                   continue
               
               # Fetch commits for this repo in the last 24 hours
+              # Note: GitHub API by default only returns commits from the default branch
+              # To get commits from all branches, we need to specify sha=all or scan each branch
               commits_url = f"https://api.github.com/repos/{repo_name}/commits"
               params = {
                   'since': start_time.isoformat() + 'Z',
                   'until': end_time.isoformat() + 'Z',
                   'per_page': 100
+                  # Note: Without 'sha' parameter, this gets commits from default branch only
+                  # To get all branches, we'd need to fetch branches first and query each
               }
               
+              # First, get commits from default branch
+              all_commits = []
+              
               try:
-                  commits_response = requests.get(commits_url, headers=github_headers, params=params)
+                  # Step 1: Get all branches for this repo
+                  branches_url = f"https://api.github.com/repos/{repo_name}/branches"
+                  branches_response = requests.get(branches_url, headers=github_headers)
                   
-                  if commits_response.status_code != 200:
-                      print(f"⚠ Could not fetch commits for {repo_name}: {commits_response.status_code}")
-                      continue
+                  branches = []
+                  if branches_response.status_code == 200:
+                      branches_data = branches_response.json()
+                      if isinstance(branches_data, list):
+                          branches = [b['name'] for b in branches_data if isinstance(b, dict) and 'name' in b]
+                          print(f"  📍 Found {len(branches)} branches in {repo_name}")
                   
-                  commits = commits_response.json()
+                  # Step 2: Fetch commits from each branch
+                  seen_commits = set()  # To avoid duplicates
                   
-                  if not isinstance(commits, list):
-                      print(f"⚠ Unexpected response format for {repo_name}: {type(commits)}")
-                      continue
+                  for branch in branches[:10]:  # Limit to first 10 branches to avoid rate limits
+                      branch_params = params.copy()
+                      branch_params['sha'] = branch
+                      
+                      commits_response = requests.get(commits_url, headers=github_headers, params=branch_params)
+                      
+                      if commits_response.status_code != 200:
+                          continue
+                      
+                      commits = commits_response.json()
+                      
+                      if isinstance(commits, list):
+                          for commit in commits:
+                              if isinstance(commit, dict) and 'sha' in commit:
+                                  commit_sha = commit['sha']
+                                  if commit_sha not in seen_commits:
+                                      seen_commits.add(commit_sha)
+                                      all_commits.append(commit)
                   
-                  print(f"  📊 Scanning {repo_name}: found {len(commits)} total commits in time range")
+                  commits = all_commits
+                  
+                  print(f"  📊 Scanning {repo_name}: found {len(commits)} total commits across all branches in time range")
                   
                   if len(commits) > 0:
                       matched_count = 0
@@ -223,10 +256,10 @@ jobs:
 
           # Build the report
           if total_commits == 0:
-              report_content = f"# Daily Work Report - {end_time.strftime('%B %d, %Y')}\n\n"
-              report_content += "No code changes were made in the last 24 hours.\n"
+              report_content = f"# Daily Work Report - {report_date.strftime('%B %d, %Y')}\n\n"
+              report_content += "No code changes were made on this day.\n"
           else:
-              report_content = f"# Daily Work Report - {end_time.strftime('%B %d, %Y')}\n\n"
+              report_content = f"# Daily Work Report - {report_date.strftime('%B %d, %Y')}\n\n"
               
               # Add executive summary
               report_content += "## 📊 Summary\n\n"
@@ -283,7 +316,7 @@ jobs:
           }
 
           task_data = {
-              'name': f'Daily Work Report - {end_time.strftime("%B %d, %Y")}',
+              'name': f'Daily Work Report - {report_date.strftime("%B %d, %Y")}',
               'description': report_content,
               'status': 'to do',
               'tags': ['daily-report', 'development-work']
