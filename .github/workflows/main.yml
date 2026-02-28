@@ -331,7 +331,7 @@ jobs:
           task_data = {
               'name': f'Daily Work Report - {report_date.strftime("%B %d, %Y")}',
               'description': report_content,
-              'status': 'to do',
+              'status': 'complete',
               'tags': ['daily-report', 'development-work']
           }
 
