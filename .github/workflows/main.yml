@@ -45,6 +45,16 @@ jobs:
           CLICKUP_TOKEN = os.environ['CLICKUP_API_TOKEN']
           CLICKUP_LIST_ID = os.environ['CLICKUP_LIST_ID']
           GITHUB_USERNAME = os.environ['GITHUB_USERNAME']
+          
+          # Your GitHub usernames to track commits from
+          MY_GITHUB_USERNAMES = [
+              GITHUB_USERNAME,
+              'Sri Guru Sharanatmananda',
+              'srigurusharanatmananda', 
+              'srizacchaeus'
+          ]
+          # Convert to lowercase for case-insensitive matching
+          MY_GITHUB_USERNAMES_LOWER = [u.lower() for u in MY_GITHUB_USERNAMES]
 
           # Calculate time range (last 24 hours)
           end_time = datetime.utcnow()
@@ -119,9 +129,9 @@ jobs:
               # Fetch commits for this repo in the last 24 hours
               commits_url = f"https://api.github.com/repos/{repo_name}/commits"
               params = {
-                  'author': GITHUB_USERNAME,
                   'since': start_time.isoformat() + 'Z',
-                  'until': end_time.isoformat() + 'Z'
+                  'until': end_time.isoformat() + 'Z',
+                  'per_page': 100
               }
               
               try:
@@ -145,15 +155,35 @@ jobs:
                           # Safely extract commit data
                           commit_info = commit.get('commit', {})
                           author_info = commit_info.get('author', {})
+                          committer_info = commit_info.get('committer', {})
+                          
+                          # Get GitHub username from commit author
+                          github_author = commit.get('author', {})
+                          author_login = github_author.get('login', '') if github_author else ''
+                          author_name = author_info.get('name', '')
+                          
+                          # Filter by your usernames - check both login and commit author name
+                          author_match = False
+                          if author_login and author_login.lower() in MY_GITHUB_USERNAMES_LOWER:
+                              author_match = True
+                          elif author_name and author_name.lower() in MY_GITHUB_USERNAMES_LOWER:
+                              author_match = True
+                          
+                          if not author_match:
+                              continue
                           
                           commit_data = {
                               'message': commit_info.get('message', 'No message').split('\n')[0],  # First line only
                               'sha': commit.get('sha', 'unknown')[:7],  # Short SHA
                               'url': commit.get('html_url', ''),
-                              'timestamp': author_info.get('date', '')
+                              'timestamp': author_info.get('date', ''),
+                              'author': author_login or author_name or 'Unknown'
                           }
                           commits_by_repo[repo_name].append(commit_data)
                           total_commits += 1
+                      
+                      if len(commits) > 0:
+                          print(f"  → Found {len([c for c in commits if isinstance(c, dict)])} commits in {repo_name}")
               except Exception as e:
                   print(f"❌ Error fetching commits for {repo_name}: {e}")
                   continue
@@ -171,7 +201,8 @@ jobs:
                   report_content += f"## 📦 {repo_name} ({len(commits)} commits)\n\n"
                   
                   for commit in commits:
-                      report_content += f"- `{commit['sha']}` {commit['message']}\n"
+                      author_display = f" by {commit['author']}" if commit.get('author') else ""
+                      report_content += f"- `{commit['sha']}` {commit['message']}{author_display}\n"
                       report_content += f"  [View commit]({commit['url']})\n"
                   
                   report_content += "\n"
